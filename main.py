@@ -1,4 +1,4 @@
 def Main():
-    print("Greetings universe!\n")
+    print("Greetings universe and awesomers!\n")
 
 Main()
