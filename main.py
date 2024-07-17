@@ -3,6 +3,8 @@ import sdl2.ext
 
 def Main():
     print("Greetings universe and awesomers!\n")
+    print("hey yall! does this count as editing? I think so!")
+    
 
     sdl2.ext.init()
 
