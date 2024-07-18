@@ -1,8 +1,6 @@
 from OpenGL.GL import *
 from mathLib import *
 from array import array
-import numpy as np
-from sys import getsizeof
 
 class Mesh:
     vao: int
