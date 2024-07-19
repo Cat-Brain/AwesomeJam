@@ -4,21 +4,30 @@ import moderngl
 
 from graphics import *
 from input import *
+import glm
 #endregion
 
 # region GLobal Variables
 global window
 
 defaultShader: moderngl.Program
+defaultShaderCameraUniform: moderngl.Uniform
 quadMesh: Mesh
 
 lastFrameTime: float
 deltaTime: float
 
+screenDim = (640, 480)
+
 # endregion
 
+def FramebufferSizeCallback(window, width: int, height: int):
+    global screenDim
+    screenDim = (width, height)
+    ctx.viewport = (0, 0, width, height)
+
 def Start():
-    global window, lastFrameTime, ctx, defaultShader, quadMesh
+    global window, lastFrameTime, ctx, defaultShader, defaultShaderCameraUniform, quadMesh
     # Initialize the library
     if not glfw.init():
         return
@@ -27,7 +36,7 @@ def Start():
     glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
     glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
     # Create a windowed mode window and its OpenGL context
-    window = glfw.create_window(640, 480, "Hello World", None, None)
+    window = glfw.create_window(screenDim[0], screenDim[1], "Hello World", None, None)
     if not window:
         glfw.terminate()
         return
@@ -36,11 +45,14 @@ def Start():
     glfw.make_context_current(window)
     ctx = moderngl.get_context()
 
-    lastFrameTime = glfw.get_time()
+    glfw.set_framebuffer_size_callback(window, FramebufferSizeCallback)
 
 
     defaultShader = OpenShader("Resources/Shaders/DefaultShaderVert.glsl", "Resources/Shaders/DefaultShaderFrag.glsl", ctx)
+    defaultShaderCameraUniform = defaultShader["camera"]
     quadMesh = Mesh("Resources/Meshes/Quad.txt", defaultShader, ctx)
+
+    lastFrameTime = glfw.get_time()
 
 
 def Update():
@@ -55,7 +67,11 @@ def Update():
     if escapeKey.held:
         glfw.set_window_should_close(window, True)
     
+    cameraMatrix = glm.identity(glm.mat4)
+    cameraMatrix *= glm.scale(glm.vec3(screenDim[1] / screenDim[0], 1.0, 1.0))
+
     if spaceKey.held:
+        defaultShaderCameraUniform.write(cameraMatrix)
         quadMesh.vao.render()
 
     # Should happen after most if not all frame logic

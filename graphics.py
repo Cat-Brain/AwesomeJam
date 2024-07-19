@@ -3,7 +3,7 @@ import numpy as np
 
 ctx: moderngl.Context
 
-def OpenShader(vertLocation: str, fragLocation: str, ctx: moderngl.Context):
+def OpenShader(vertLocation: str, fragLocation: str, ctx: moderngl.Context) -> moderngl.Program:
     file = open(vertLocation)
     vertShader = file.read()
     file.close()
