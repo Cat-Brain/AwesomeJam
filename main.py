@@ -9,13 +9,16 @@ from input import *
 # region GLobal Variables
 global window
 
+defaultShader: moderngl.Program
+quadMesh: Mesh
+
 lastFrameTime: float
 deltaTime: float
 
 # endregion
 
 def Start():
-    global window, lastFrameTime, ctx
+    global window, lastFrameTime, ctx, defaultShader, quadMesh
     # Initialize the library
     if not glfw.init():
         return
@@ -35,7 +38,9 @@ def Start():
 
     lastFrameTime = glfw.get_time()
 
-    testMesh = Mesh("Resources/Meshes/Quad.txt")
+
+    defaultShader = OpenShader("Resources/Shaders/DefaultShaderVert.glsl", "Resources/Shaders/DefaultShaderFrag.glsl", ctx)
+    quadMesh = Mesh("Resources/Meshes/Quad.txt", defaultShader, ctx)
 
 
 def Update():
@@ -49,6 +54,9 @@ def Update():
     
     if escapeKey.held:
         glfw.set_window_should_close(window, True)
+    
+    if spaceKey.held:
+        quadMesh.vao.render()
 
     # Should happen after most if not all frame logic
     lastFrameTime = glfw.get_time()

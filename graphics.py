@@ -3,6 +3,15 @@ import numpy as np
 
 ctx: moderngl.Context
 
+def OpenShader(vertLocation: str, fragLocation: str, ctx: moderngl.Context):
+    file = open(vertLocation)
+    vertShader = file.read()
+    file.close()
+    file = open(fragLocation)
+    fragShader = file.read()
+    file.close()
+    return ctx.program(vertShader, fragShader)
+
 class Mesh:
     vao: moderngl.VertexArray
     vbo: moderngl.Buffer
@@ -10,7 +19,7 @@ class Mesh:
     vertices: np.ndarray
     indices: np.ndarray
 
-    def __init__(self, location: str):
+    def __init__(self, location: str, shader: moderngl.Program, ctx: moderngl.Context):
         file = open(location, "r")
         data: str = file.read()
         file.close()
@@ -49,7 +58,7 @@ class Mesh:
             except:
                 print(f"ERROR:\nMesh at location {location} had an index group which was ({indStr}) with a non-int value!")
                 return
-        #global ctx
-        #self.vbo = ctx.buffer(self.vertices.astype('f2').tobytes())
-        #self.ebo = ctx.buffer(self.indices.astype("I3").tobytes())
-        #self.vao = ctx.vertex_array(self.vbo, self.ebo)
+        
+        self.vbo = ctx.buffer(self.vertices.astype('f4').tobytes())
+        self.ebo = ctx.buffer(self.indices.astype('u4').tobytes())
+        self.vao = ctx.vertex_array(shader, self.vbo, "aPos", index_buffer=self.ebo)

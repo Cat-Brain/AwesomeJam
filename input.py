@@ -21,3 +21,4 @@ class Key:
 # Must be defined before all keys are
 keys = []
 escapeKey = Key(glfw.KEY_ESCAPE)
+spaceKey = Key(glfw.KEY_SPACE)
