@@ -1,6 +1,6 @@
 # region Imports
 import glfw
-from OpenGL.GL import *
+import moderngl
 
 from graphics import *
 from input import *
@@ -15,10 +15,14 @@ deltaTime: float
 # endregion
 
 def Start():
-    global window, lastFrameTime
+    global window, lastFrameTime, ctx
     # Initialize the library
     if not glfw.init():
         return
+    
+    glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
+    glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
+    glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
     # Create a windowed mode window and its OpenGL context
     window = glfw.create_window(640, 480, "Hello World", None, None)
     if not window:
@@ -27,6 +31,7 @@ def Start():
 
     # Make the window's context current
     glfw.make_context_current(window)
+    ctx = moderngl.get_context()
 
     lastFrameTime = glfw.get_time()
 
@@ -38,8 +43,7 @@ def Update():
     deltaTime = glfw.get_time() - lastFrameTime
 
     # Render here, e.g. using pyOpenGL
-    glClearColor(0.05, 0.1, 0.2, 0.0)
-    glClear(GL_COLOR_BUFFER_BIT)
+    ctx.clear(0.05, 0.1, 0.2)
     for key in keys:
         key.Update(window)
     

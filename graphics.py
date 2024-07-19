@@ -1,13 +1,14 @@
-from OpenGL.GL import *
-from mathLib import *
-from array import array
+import moderngl
+import numpy as np
+
+ctx: moderngl.Context
 
 class Mesh:
-    vao: int
-    vbo: int
-    ebo: int
-    vertices: array
-    indices: array
+    vao: moderngl.VertexArray
+    vbo: moderngl.Buffer
+    ebo: moderngl.Buffer
+    vertices: np.ndarray
+    indices: np.ndarray
 
     def __init__(self, location: str):
         file = open(location, "r")
@@ -20,7 +21,7 @@ class Mesh:
             return
         
         splitVert = splitData[0].split("\n")
-        self.vertices = array("f", [0.0] * len(splitVert) * 2)
+        self.vertices = np.empty(len(splitVert) * 2)
         
         for i, vertStr in enumerate(splitVert):
             splitVert = vertStr.split(" ")
@@ -35,7 +36,7 @@ class Mesh:
                 return
         
         splitInd = splitData[1].split("\n")
-        self.indices = array("I", [0] * len(splitInd) * 3)
+        self.indices = np.empty(len(splitInd) * 3)
         for i, indStr in enumerate(splitInd):
             splitInd = indStr.split(" ")
             if (len(splitInd) != 3):
@@ -48,21 +49,7 @@ class Mesh:
             except:
                 print(f"ERROR:\nMesh at location {location} had an index group which was ({indStr}) with a non-int value!")
                 return
-            
-        self.vao = glGenVertexArrays(1)
-        self.vbo = glGenBuffers(1)
-        self.ebo = glGenBuffers(1)
-        
-        glBindVertexArray(self.vao)
-        glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
-
-        #glBufferData(GL_ARRAY_BUFFER, len(self.vertices) * self.vertices.itemsize, self.vertices., GL_STATIC_DRAW)
-        #glBufferData(GL_ELEMENT_ARRAY_BUFFER, len(self.indices) * self.vertices.itemsize, self.indices, GL_STATIC_DRAW);
-
-        #glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
-        #glEnableVertexAttribArray(0);
-
-        glDeleteVertexArrays(1, self.vao)
-        glDeleteBuffers(1, self.vbo)
-        glDeleteBuffers(1, self.ebo)
+        #global ctx
+        #self.vbo = ctx.buffer(self.vertices.astype('f2').tobytes())
+        #self.ebo = ctx.buffer(self.indices.astype("I3").tobytes())
+        #self.vao = ctx.vertex_array(self.vbo, self.ebo)
