@@ -1,7 +1,11 @@
 import moderngl
 import numpy as np
+import glm
+import png
 
 ctx: moderngl.Context
+defaultShader: moderngl.Program
+defaultShaderCameraUniform: moderngl.Uniform
 
 def OpenShader(vertLocation: str, fragLocation: str, ctx: moderngl.Context) -> moderngl.Program:
     file = open(vertLocation)
@@ -62,3 +66,21 @@ class Mesh:
         self.vbo = ctx.buffer(self.vertices.astype('f4').tobytes())
         self.ebo = ctx.buffer(self.indices.astype('u4').tobytes())
         self.vao = ctx.vertex_array(shader, self.vbo, "aPos", index_buffer=self.ebo)
+
+
+quadMesh: Mesh
+
+
+def OpenTexture(location: str, ctx: moderngl.Context) -> moderngl.Texture:
+    reader = png.Reader(filename=location)
+    reader.read()
+    #return ctx.texture([reader.width, reader.height], 1, reader.)
+
+
+class Sprite:
+    texture: moderngl.Texture
+    pos: glm.vec2
+    scale: glm.vec2
+
+    def __init__(self):
+        pass

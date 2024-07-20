@@ -10,14 +10,14 @@ import glm
 # region GLobal Variables
 global window
 
-defaultShader: moderngl.Program
-defaultShaderCameraUniform: moderngl.Uniform
-quadMesh: Mesh
-
 lastFrameTime: float
 deltaTime: float
 
-screenDim = (640, 480)
+screenDim: tuple[int, int] = (640, 480)
+
+camPos: glm.vec2 = glm.vec2(0)
+camZoom: float = 10.0
+camSpeed: float = 10.0
 
 # endregion
 
@@ -53,30 +53,43 @@ def Start():
     quadMesh = Mesh("Resources/Meshes/Quad.txt", defaultShader, ctx)
 
     lastFrameTime = glfw.get_time()
+    
+    testTexture = OpenTexture("Resources/Sprites/TestSprite.png", ctx)
 
 
 def Update():
-    global deltaTime, lastFrameTime
+    global deltaTime, lastFrameTime, camPos
     deltaTime = glfw.get_time() - lastFrameTime
+    lastFrameTime = glfw.get_time()
 
-    # Render here, e.g. using pyOpenGL
     ctx.clear(0.05, 0.1, 0.2)
     for key in keys:
         key.Update(window)
     
     if escapeKey.held:
         glfw.set_window_should_close(window, True)
+
+    camMovement = glm.vec2(0)
+    if (aKey.held):
+        camMovement.x -= 1
+    if (dKey.held):
+        camMovement.x += 1
+    if (sKey.held):
+        camMovement.y -= 1
+    if (wKey.held):
+        camMovement.y += 1
+    if camMovement != glm.vec2(0):
+        camPos += deltaTime * camSpeed * glm.normalize(camMovement)
     
     cameraMatrix = glm.identity(glm.mat4)
-    cameraMatrix *= glm.scale(glm.vec3(screenDim[1] / screenDim[0], 1.0, 1.0))
+    cameraMatrix *= glm.scale(glm.vec3(screenDim[1] / (screenDim[0] * camZoom), 1.0 / camZoom, 1.0))
+    cameraMatrix *= glm.translate(glm.vec3(-camPos, 0))
 
-    if spaceKey.held:
-        defaultShaderCameraUniform.write(cameraMatrix)
-        quadMesh.vao.render()
+    defaultShaderCameraUniform.write(cameraMatrix)
+    quadMesh.vao.render()
+
 
     # Should happen after most if not all frame logic
-    lastFrameTime = glfw.get_time()
-
     glfw.swap_buffers(window)
     glfw.poll_events()
 

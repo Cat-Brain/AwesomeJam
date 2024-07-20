@@ -22,3 +22,7 @@ class Key:
 keys = []
 escapeKey = Key(glfw.KEY_ESCAPE)
 spaceKey = Key(glfw.KEY_SPACE)
+aKey = Key(glfw.KEY_A)
+dKey = Key(glfw.KEY_D)
+sKey = Key(glfw.KEY_S)
+wKey = Key(glfw.KEY_W)
