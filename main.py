@@ -86,7 +86,7 @@ class Texture:
     sampler: moderngl.Sampler
 
     def __init__(self, file: Image.Image):
-        self.texture = ctx.texture([file.width, file.height], 1, file.im)
+        self.texture = ctx.texture([file.width, file.height], 4, file.tobytes())
         self.sampler = ctx.sampler(texture=self.texture)
         self.sampler.filter = (moderngl.NEAREST, moderngl.NEAREST)
 
