@@ -1,9 +1,12 @@
 # region Imports
+
 import glfw
 import moderngl
 import glm
 from PIL import Image
+from PIL import ImageOps
 import numpy as np
+
 #endregion
 
 #region Classes
@@ -13,14 +16,16 @@ class Key:
     held: bool = False
     released: bool = False
     keycode: int
+    isMouse: bool
 
-    def __init__(self, keycode: int):
+    def __init__(self, keycode: int, isMouse: bool = False):
         self.keycode = keycode
+        self.isMouse = isMouse
         global keys
         keys.append(self)        
 
     def Update(self, window):
-        now_held = glfw.get_key(window, self.keycode)
+        now_held = glfw.get_mouse_button(window, self.keycode) if self.isMouse else glfw.get_key(window, self.keycode)
         self.pressed = now_held and not self.held
         self.released = not now_held and self.held
         self.held = now_held
@@ -86,7 +91,7 @@ class Texture:
     sampler: moderngl.Sampler
 
     def __init__(self, file: Image.Image):
-        self.texture = ctx.texture([file.width, file.height], 4, file.tobytes())
+        self.texture = ctx.texture([file.width, file.height], 4, ImageOps.flip(file).tobytes())
         self.sampler = ctx.sampler(texture=self.texture)
         self.sampler.filter = (moderngl.NEAREST, moderngl.NEAREST)
 
@@ -104,11 +109,11 @@ class Sprite:
         self.pos = pos
         self.scale = scale
 
-    def Draw(self, cameraMatrix: glm.mat4, location: int = 0):
-        defaultShaderCameraUniform.write(cameraMatrix)
+    def Draw(self, location: int = 0):
+        spriteShaderCameraUniform.write(camMatrix)
         self.texture.Use(location)
-        defaultShaderTextureUniform.value = location
-        defaultShaderPosScaleUniform.write(glm.vec4(self.pos, self.scale))
+        spriteShaderTextureUniform.value = location
+        spriteShaderPosScaleUniform.write(glm.vec4(self.pos, self.scale))
         quadMesh.Draw()
 
 #endregion
@@ -118,25 +123,45 @@ global window
 
 ctx: moderngl.Context
 
+framebuffer: moderngl.Framebuffer
+
 lastFrameTime: float
 deltaTime: float
 
-screenDim: tuple[int, int] = (640, 480)
+screenDim: glm.ivec2 = glm.ivec2(512, 480)
+framebufferDim: tuple[int, int] = (256, 240)
+
+rawCursorPos: glm.ivec2 = glm.ivec2(0)
+localCursorPos: glm.vec2 = glm.vec2(0)
+cursorPos: glm.vec2 = glm.vec2(0)
 
 camPos: glm.vec2 = glm.vec2(0)
 camZoom: float = 10.0
 camSpeed: float = 10.0
+camMatrix: glm.mat4
 
-defaultShader: moderngl.Program
-defaultShaderCameraUniform: moderngl.Uniform
-defaultShaderTextureUniform: moderngl.Uniform
-defaultShaderPosScaleUniform: moderngl.Uniform
+spriteShader: moderngl.Program
+spriteShaderCameraUniform: moderngl.Uniform
+spriteShaderTextureUniform: moderngl.Uniform
+spriteShaderPosScaleUniform: moderngl.Uniform
+
+backgroundShader: moderngl.Program
+backgroundShaderCameraUniform: moderngl.Uniform
+backgroundShaderFrequencyUniform: moderngl.Uniform
+backgroundShaderColorsUniform: moderngl.Uniform
+backgroundShaderTimeUniform: moderngl.Uniform
+
+backgroundFrequency: float = 0.05
+backgroundTimeFrequency: float = 0.003
 
 quadMesh: Mesh
+backgroundQuadMesh: Mesh
 
 testTexture: Texture
+testTexture2: Texture
 
 testSprite: Sprite
+testSprite2: Sprite
 
 # Must be defined before all keys are
 keys = []
@@ -146,15 +171,23 @@ aKey = Key(glfw.KEY_A)
 dKey = Key(glfw.KEY_D)
 sKey = Key(glfw.KEY_S)
 wKey = Key(glfw.KEY_W)
+mouseLeftClick = Key(glfw.MOUSE_BUTTON_LEFT, True)
+mouseRightClick = Key(glfw.MOUSE_BUTTON_RIGHT, True)
 
 # endregion
 
 #region Functions
 
+def NearestFramebufferViewport(width: int, height: int):
+    return (0, 0, width, height)
+    ratio: int = np.ceil(height / framebufferDim[1])
+    return (0, 0, np.ceil(width * ratio), np.ceil())
+
 def FramebufferSizeCallback(window, width: int, height: int):
     global screenDim
-    screenDim = (width, height)
+    screenDim = glm.vec2(width, height)
     ctx.viewport = (0, 0, width, height)
+    framebuffer.viewport = NearestFramebufferViewport(width, height)
 
 
 def OpenShader(vertLocation: str, fragLocation: str) -> moderngl.Program:
@@ -169,7 +202,9 @@ def OpenShader(vertLocation: str, fragLocation: str) -> moderngl.Program:
 #endregion
 
 def Start():
-    global ctx, window, lastFrameTime, defaultShader, defaultShaderCameraUniform, defaultShaderTextureUniform, defaultShaderPosScaleUniform, quadMesh, testTexture, testSampler, testSprite
+    global window, ctx, framebuffer, lastFrameTime, spriteShader, spriteShaderCameraUniform, spriteShaderTextureUniform, spriteShaderPosScaleUniform
+    global backgroundShader, backgroundShaderCameraUniform, backgroundShaderFrequencyUniform, backgroundShaderColorsUniform, backgroundShaderTimeUniform
+    global quadMesh, backgroundQuadMesh, testTexture, testTexture2, testSprite, testSprite2
     # Initialize the library
     if not glfw.init():
         return
@@ -178,7 +213,7 @@ def Start():
     glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
     glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
     # Create a windowed mode window and its OpenGL context
-    window = glfw.create_window(screenDim[0], screenDim[1], "Hello World", None, None)
+    window = glfw.create_window(screenDim.x, screenDim.y, "Hello World", None, None)
     if not window:
         glfw.terminate()
         return
@@ -189,28 +224,44 @@ def Start():
 
     glfw.set_framebuffer_size_callback(window, FramebufferSizeCallback)
 
-    defaultShader = OpenShader("Resources/Shaders/DefaultShaderVert.glsl", "Resources/Shaders/DefaultShaderFrag.glsl")
-    defaultShaderCameraUniform = defaultShader["camera"]
-    defaultShaderTextureUniform = defaultShader["tex"]
-    defaultShaderPosScaleUniform = defaultShader["posScale"]
+    framebuffer = ctx.simple_framebuffer((256, 240))
 
-    quadMesh = Mesh("Resources/Meshes/Quad.txt", defaultShader)
+    spriteShader = OpenShader("Resources/Shaders/DefaultShaderVert.glsl", "Resources/Shaders/DefaultShaderFrag.glsl")
+    spriteShaderCameraUniform = spriteShader["camera"]
+    spriteShaderTextureUniform = spriteShader["tex"]
+    spriteShaderPosScaleUniform = spriteShader["posScale"]
+    
+    backgroundShader = OpenShader("Resources/Shaders/BackgroundShaderVert.glsl", "Resources/Shaders/BackgroundShaderFrag.glsl")
+    backgroundShaderCameraUniform = backgroundShader["camera"]
+    backgroundShaderFrequencyUniform = backgroundShader["frequency"]
+    backgroundShaderColorsUniform = backgroundShader["colors"]
+    backgroundShaderTimeUniform = backgroundShader["time"]
+
+    quadMesh = Mesh("Resources/Meshes/Quad.txt", spriteShader)
+    backgroundQuadMesh = Mesh("Resources/Meshes/Quad.txt", backgroundShader)
 
     lastFrameTime = glfw.get_time()
     
     testTexture = Texture(Image.open("Resources/Sprites/TestSprite.png"))
+    testTexture2 = Texture(Image.open("Resources/Sprites/TestSprite2.png"))
 
     testSprite = Sprite(testTexture)
+    testSprite2 = Sprite(testTexture)
 
 
 def Update():
-    global deltaTime, lastFrameTime, camPos
+    global deltaTime, lastFrameTime, camPos, camMatrix, rawCursorPos, localCursorPos, cursorPos
     deltaTime = glfw.get_time() - lastFrameTime
     lastFrameTime = glfw.get_time()
 
     ctx.clear(0.05, 0.1, 0.2)
     for key in keys:
         key.Update(window)
+
+    tempCursorPos = glfw.get_cursor_pos(window)
+    rawCursorPos = glm.ivec2(tempCursorPos[0], tempCursorPos[1])
+    localCursorPos = glm.vec2(rawCursorPos.x * 2 / screenDim.x - 1, 1.0 - rawCursorPos.y * 2 / screenDim.y)
+
     
     if escapeKey.held:
         glfw.set_window_should_close(window, True)
@@ -227,11 +278,24 @@ def Update():
     if camMovement != glm.vec2(0):
         camPos += deltaTime * camSpeed * glm.normalize(camMovement)
     
-    cameraMatrix = glm.identity(glm.mat4)
-    cameraMatrix *= glm.scale(glm.vec3(screenDim[1] / (screenDim[0] * camZoom), 1.0 / camZoom, 1.0))
-    cameraMatrix *= glm.translate(glm.vec3(-camPos, 0))
+    camMatrix = glm.identity(glm.mat4)
+    camMatrix *= glm.scale(glm.vec3(screenDim[1] / (screenDim[0] * camZoom), 1.0 / camZoom, 1.0))
+    camMatrix *= glm.translate(glm.vec3(-camPos, 0))
+    invCamMatrix = glm.inverse(camMatrix)
 
-    testSprite.Draw(cameraMatrix)
+    cursorPos = glm.vec2(invCamMatrix * glm.vec4(localCursorPos, 0, 0)) + camPos
+
+    backgroundShaderCameraUniform.write(invCamMatrix)
+    backgroundShaderFrequencyUniform.write(glm.vec2(backgroundFrequency, backgroundTimeFrequency))
+    backgroundShaderColorsUniform.write(b''.join([glm.vec4(0.18, 0.19, 0.52, 0.75), glm.vec4(0.16, 0.13, 0.45, 0.5), glm.vec4(0.13, 0.06, 0.34, 0.25)]))
+    backgroundShaderTimeUniform.value = lastFrameTime
+    backgroundQuadMesh.Draw()
+
+
+    testSprite.Draw()
+    testSprite2.pos = cursorPos
+    testSprite2.texture = testTexture if mouseLeftClick.held else testTexture2
+    testSprite2.Draw()
 
 
     # Should happen after most if not all frame logic

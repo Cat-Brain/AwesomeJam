@@ -7,5 +7,11 @@ uniform sampler2D tex;
 
 void main()
 {
-    f_color = texture(tex, uv).rgb;
+    vec4 col = texture(tex, uv);
+    if (col.a < 0.5)
+    {
+        discard;
+        return;
+    }
+    f_color = col.rgb;
 }
