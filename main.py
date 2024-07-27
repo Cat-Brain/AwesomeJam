@@ -6,6 +6,7 @@ import glm
 from PIL import Image
 from PIL import ImageOps
 import numpy as np
+from enum import Enum
 
 #endregion
 
@@ -100,7 +101,7 @@ class Sprite:
     pos: glm.vec2
     scale: glm.vec2
 
-    def __init__(self, texture: moderngl.Sampler, pos: glm.vec2 = glm.vec2(0), scale: glm.vec2 = glm.vec2(1)):
+    def __init__(self, texture: Texture, pos: glm.vec2 = glm.vec2(0), scale: glm.vec2 = glm.vec2(1)):
         self.texture = texture
         self.pos = pos
         self.scale = scale
@@ -111,6 +112,49 @@ class Sprite:
         spriteShaderTextureUniform.value = location
         spriteShaderPosScaleUniform.write(glm.vec4(ToGrid(self.pos), self.scale * 0.5))
         spriteVAO.render()
+
+
+class ButtonState(Enum):
+    DEFAULT = 0
+    HOVERED = 1
+    HELD = 2
+
+class Button(Sprite):
+    defaultTexture: Texture
+    hoveredTexture: Texture
+    heldTexture: Texture
+    triggeredOnRelease: bool
+
+    def __init__(self, defaultTexture: Texture, hoveredTexture: Texture, heldTexture: Texture, pos: glm.vec2 = glm.vec2(0), scale: glm.vec2 = glm.vec2(1), triggeredOnRelease: bool = True):
+        self.defaultTexture = defaultTexture
+        self.hoveredTexture = hoveredTexture
+        self.heldTexture = heldTexture
+        self.triggeredOnRelease = triggeredOnRelease
+        Sprite.__init__(self, defaultTexture, pos, scale)
+    
+    def State(self) -> ButtonState:
+        gridPos = ToGrid(self.pos)
+        minPos = gridPos - self.scale * 0.5
+        maxPos = gridPos + self.scale * 0.5
+        gridCursor = ToGrid(cursorPos)
+        isHovered = gridCursor.x >= minPos.x and gridCursor.y >= minPos.y and gridCursor.x <= maxPos.x and gridCursor.y <= maxPos.y
+        if isHovered:
+            return ButtonState.HELD if mouseLeftClick.held else ButtonState.HOVERED
+        else:
+            return ButtonState.DEFAULT
+
+    def Update(self):
+        pass
+    
+    def Draw(self, location: int = 0):
+        state = self.State()
+        if state == ButtonState.DEFAULT:
+            self.texture = self.defaultTexture
+        elif state == ButtonState.HOVERED:
+            self.texture = self.hoveredTexture
+        else:
+            self.texture = self.heldTexture
+        Sprite.Draw(self, location)
 
 #endregion
 
@@ -166,9 +210,10 @@ toScreenVAO: moderngl.VertexArray
 
 testTexture: Texture
 testTexture2: Texture
+testTexture3: Texture
 
 testSprite: Sprite
-testSprite2: Sprite
+testButton: Button
 
 # Must be defined before all keys are
 keys = []
@@ -220,7 +265,7 @@ def Start():
     global spriteShader, spriteShaderCameraUniform, spriteShaderTextureUniform, spriteShaderPosScaleUniform
     global backgroundShader, backgroundShaderCameraUniform, backgroundShaderFrequencyUniform, backgroundShaderColorsUniform, backgroundShaderTimeUniform
     global toScreenShader, toScreenTextureUniform, toScreenStretchUniform
-    global quadMesh, spriteVAO, backgroundVAO, toScreenVAO, testTexture, testTexture2, testSprite, testSprite2
+    global quadMesh, spriteVAO, backgroundVAO, toScreenVAO, testTexture, testTexture2, testTexture3, testSprite, testButton
     # Initialize the library
     if not glfw.init():
         return
@@ -267,9 +312,10 @@ def Start():
     
     testTexture = Texture(Image.open("Resources/Sprites/TestSprite.png"))
     testTexture2 = Texture(Image.open("Resources/Sprites/TestSprite2.png"))
+    testTexture3 = Texture(Image.open("Resources/Sprites/TestSprite3.png"))
 
     testSprite = Sprite(testTexture)
-    testSprite2 = Sprite(testTexture)
+    testButton = Button(testTexture, testTexture2, testTexture3, glm.vec2(3, 0))
 
 
 def Update():
@@ -318,9 +364,7 @@ def Update():
 
 
     testSprite.Draw()
-    testSprite2.pos = cursorPos
-    testSprite2.texture = testTexture if mouseLeftClick.held else testTexture2
-    testSprite2.Draw()
+    testButton.Draw()
 
     ctx.screen.use()
 
