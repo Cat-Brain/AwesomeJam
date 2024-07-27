@@ -38,8 +38,8 @@ class Mesh:
     vertices: np.ndarray
     indices: np.ndarray
 
-    def __init__(self, location: str, shader: moderngl.Program):
-        file = open(location, "r")
+    def __init__(self, location: str):
+        file = open(MESH_PATH + location, "r")
         data: str = file.read()
         file.close()
 
@@ -80,10 +80,6 @@ class Mesh:
         
         self.vbo = ctx.buffer(self.vertices.astype('f4').tobytes())
         self.ebo = ctx.buffer(self.indices.astype('u4').tobytes())
-        self.vao = ctx.vertex_array(shader, self.vbo, "aPos", "aUV", index_buffer=self.ebo)
-
-    def Draw(self):
-        self.vao.render()
 
 
 class Texture:
@@ -113,8 +109,8 @@ class Sprite:
         spriteShaderCameraUniform.write(camMatrix)
         self.texture.Use(location)
         spriteShaderTextureUniform.value = location
-        spriteShaderPosScaleUniform.write(glm.vec4(self.pos, self.scale))
-        quadMesh.Draw()
+        spriteShaderPosScaleUniform.write(glm.vec4(ToGrid(self.pos), self.scale * 0.5))
+        spriteVAO.render()
 
 #endregion
 
@@ -129,16 +125,21 @@ lastFrameTime: float
 deltaTime: float
 
 screenDim: glm.ivec2 = glm.ivec2(512, 480)
-framebufferDim: tuple[int, int] = (256, 240)
 
 rawCursorPos: glm.ivec2 = glm.ivec2(0)
 localCursorPos: glm.vec2 = glm.vec2(0)
 cursorPos: glm.vec2 = glm.vec2(0)
 
 camPos: glm.vec2 = glm.vec2(0)
-camZoom: float = 10.0
 camSpeed: float = 10.0
 camMatrix: glm.mat4
+
+SHADER_PATH: str = "Resources/Shaders/"
+MESH_PATH: str = "Resources/Meshes/"
+
+PIXELS_PER_UNIT: int = 8
+CAMERA_ZOOM: int = 10
+FRAMEBUFFER_HEIGHT: int = PIXELS_PER_UNIT * CAMERA_ZOOM * 2
 
 spriteShader: moderngl.Program
 spriteShaderCameraUniform: moderngl.Uniform
@@ -154,8 +155,14 @@ backgroundShaderTimeUniform: moderngl.Uniform
 backgroundFrequency: float = 0.05
 backgroundTimeFrequency: float = 0.003
 
+toScreenShader: moderngl.Program
+toScreenTextureUniform: moderngl.Uniform
+toScreenStretchUniform: moderngl.Uniform
+
 quadMesh: Mesh
-backgroundQuadMesh: Mesh
+spriteVAO: moderngl.VertexArray
+backgroundVAO: moderngl.VertexArray
+toScreenVAO: moderngl.VertexArray
 
 testTexture: Texture
 testTexture2: Texture
@@ -178,23 +185,30 @@ mouseRightClick = Key(glfw.MOUSE_BUTTON_RIGHT, True)
 
 #region Functions
 
-def NearestFramebufferViewport(width: int, height: int):
-    return (0, 0, width, height)
-    ratio: int = np.ceil(height / framebufferDim[1])
-    return (0, 0, np.ceil(width * ratio), np.ceil())
+def ToGrid(value: glm.vec2):
+    return glm.round(value * PIXELS_PER_UNIT) / PIXELS_PER_UNIT
+
+def NearestFramebufferViewport():
+    ratio: int = np.ceil(screenDim[1] / FRAMEBUFFER_HEIGHT)
+    return (int(np.ceil(screenDim[0] / ratio)), int(np.ceil(screenDim[1] / ratio)))
+
+def GetFramebufferStretch():
+    ratio: int = np.ceil(screenDim[1] / FRAMEBUFFER_HEIGHT)
+    return glm.vec2(1 / (ratio * framebuffer.width / screenDim[0]), 1 / (ratio * framebuffer.height / screenDim[1]))
 
 def FramebufferSizeCallback(window, width: int, height: int):
-    global screenDim
+    global screenDim, framebuffer
     screenDim = glm.vec2(width, height)
     ctx.viewport = (0, 0, width, height)
-    framebuffer.viewport = NearestFramebufferViewport(width, height)
+    framebuffer.release()
+    framebuffer = ctx.framebuffer(ctx.texture(NearestFramebufferViewport(), 4))
 
 
 def OpenShader(vertLocation: str, fragLocation: str) -> moderngl.Program:
-    file = open(vertLocation)
+    file = open(SHADER_PATH + vertLocation)
     vertShader = file.read()
     file.close()
-    file = open(fragLocation)
+    file = open(SHADER_PATH + fragLocation)
     fragShader = file.read()
     file.close()
     return ctx.program(vertShader, fragShader)
@@ -202,9 +216,11 @@ def OpenShader(vertLocation: str, fragLocation: str) -> moderngl.Program:
 #endregion
 
 def Start():
-    global window, ctx, framebuffer, lastFrameTime, spriteShader, spriteShaderCameraUniform, spriteShaderTextureUniform, spriteShaderPosScaleUniform
+    global window, ctx, framebuffer, lastFrameTime
+    global spriteShader, spriteShaderCameraUniform, spriteShaderTextureUniform, spriteShaderPosScaleUniform
     global backgroundShader, backgroundShaderCameraUniform, backgroundShaderFrequencyUniform, backgroundShaderColorsUniform, backgroundShaderTimeUniform
-    global quadMesh, backgroundQuadMesh, testTexture, testTexture2, testSprite, testSprite2
+    global toScreenShader, toScreenTextureUniform, toScreenStretchUniform
+    global quadMesh, spriteVAO, backgroundVAO, toScreenVAO, testTexture, testTexture2, testSprite, testSprite2
     # Initialize the library
     if not glfw.init():
         return
@@ -221,24 +237,31 @@ def Start():
     # Make the window's context current
     glfw.make_context_current(window)
     ctx = moderngl.create_context()
+    framebuffer = ctx.simple_framebuffer([FRAMEBUFFER_HEIGHT, FRAMEBUFFER_HEIGHT])
 
     glfw.set_framebuffer_size_callback(window, FramebufferSizeCallback)
+    FramebufferSizeCallback(window, screenDim[0], screenDim[1])
 
-    framebuffer = ctx.simple_framebuffer((256, 240))
 
-    spriteShader = OpenShader("Resources/Shaders/DefaultShaderVert.glsl", "Resources/Shaders/DefaultShaderFrag.glsl")
+    spriteShader = OpenShader("DefaultShaderVert.glsl", "DefaultShaderFrag.glsl")
     spriteShaderCameraUniform = spriteShader["camera"]
     spriteShaderTextureUniform = spriteShader["tex"]
     spriteShaderPosScaleUniform = spriteShader["posScale"]
     
-    backgroundShader = OpenShader("Resources/Shaders/BackgroundShaderVert.glsl", "Resources/Shaders/BackgroundShaderFrag.glsl")
+    backgroundShader = OpenShader("BackgroundShaderVert.glsl", "BackgroundShaderFrag.glsl")
     backgroundShaderCameraUniform = backgroundShader["camera"]
     backgroundShaderFrequencyUniform = backgroundShader["frequency"]
     backgroundShaderColorsUniform = backgroundShader["colors"]
     backgroundShaderTimeUniform = backgroundShader["time"]
 
-    quadMesh = Mesh("Resources/Meshes/Quad.txt", spriteShader)
-    backgroundQuadMesh = Mesh("Resources/Meshes/Quad.txt", backgroundShader)
+    toScreenShader = OpenShader("ToScreenVert.glsl", "ToScreenFrag.glsl")
+    toScreenTextureUniform = toScreenShader["tex"]
+    toScreenStretchUniform = toScreenShader["stretch"]
+
+    quadMesh = Mesh("Quad.txt")
+    spriteVAO = ctx.vertex_array(spriteShader, quadMesh.vbo, "aPos", "aUV", index_buffer=quadMesh.ebo)
+    backgroundVAO = ctx.vertex_array(backgroundShader, quadMesh.vbo, "aPos", "aUV", index_buffer=quadMesh.ebo)
+    toScreenVAO = ctx.vertex_array(toScreenShader, quadMesh.vbo, "aPos", "aUV", index_buffer=quadMesh.ebo)
 
     lastFrameTime = glfw.get_time()
     
@@ -254,7 +277,9 @@ def Update():
     deltaTime = glfw.get_time() - lastFrameTime
     lastFrameTime = glfw.get_time()
 
-    ctx.clear(0.05, 0.1, 0.2)
+    framebuffer.use()
+    framebuffer.clear(0.05, 0.1, 0.2)
+
     for key in keys:
         key.Update(window)
 
@@ -279,8 +304,8 @@ def Update():
         camPos += deltaTime * camSpeed * glm.normalize(camMovement)
     
     camMatrix = glm.identity(glm.mat4)
-    camMatrix *= glm.scale(glm.vec3(screenDim[1] / (screenDim[0] * camZoom), 1.0 / camZoom, 1.0))
-    camMatrix *= glm.translate(glm.vec3(-camPos, 0))
+    camMatrix *= glm.scale(glm.vec3(PIXELS_PER_UNIT * 2 / framebuffer.width, PIXELS_PER_UNIT * 2 / framebuffer.height, 1.0))
+    camMatrix *= glm.translate(glm.vec3(ToGrid(-camPos), 0))
     invCamMatrix = glm.inverse(camMatrix)
 
     cursorPos = glm.vec2(invCamMatrix * glm.vec4(localCursorPos, 0, 0)) + camPos
@@ -289,13 +314,20 @@ def Update():
     backgroundShaderFrequencyUniform.write(glm.vec2(backgroundFrequency, backgroundTimeFrequency))
     backgroundShaderColorsUniform.write(b''.join([glm.vec4(0.18, 0.19, 0.52, 0.75), glm.vec4(0.16, 0.13, 0.45, 0.5), glm.vec4(0.13, 0.06, 0.34, 0.25)]))
     backgroundShaderTimeUniform.value = lastFrameTime
-    backgroundQuadMesh.Draw()
+    backgroundVAO.render()
 
 
     testSprite.Draw()
     testSprite2.pos = cursorPos
     testSprite2.texture = testTexture if mouseLeftClick.held else testTexture2
     testSprite2.Draw()
+
+    ctx.screen.use()
+
+    framebuffer.color_attachments[0].use(0)
+    toScreenTextureUniform.value = 0
+    toScreenStretchUniform.write(GetFramebufferStretch())
+    toScreenVAO.render()
 
 
     # Should happen after most if not all frame logic
