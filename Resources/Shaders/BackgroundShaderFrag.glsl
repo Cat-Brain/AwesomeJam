@@ -111,7 +111,9 @@ out vec3 f_color;
 in vec2 pos;
 
 uniform vec2 frequency;
+uniform float stippleDist;
 uniform float time;
+uniform int stippleOffset;
 #define COLOR_COUNT 3
 uniform vec4[COLOR_COUNT] colors;
 
@@ -119,7 +121,12 @@ void main()
 {
     float value = snoise(vec3(frequency.x * pos, frequency.y * time)) * 0.5 + 0.5;
     for (int i = 0; i < COLOR_COUNT; i++)
-        if (value > colors[i].a)
+        if ((int(floor(gl_FragCoord.x + gl_FragCoord.y)) + i) % 2 == stippleOffset && abs(value - colors[i].a) < stippleDist)
+        {
+            f_color = colors[i].rgb;
+            return;
+        }
+        else if (value > colors[i].a)
         {
             f_color = colors[i].rgb;
             return;

@@ -144,16 +144,20 @@ class Button(Sprite):
             return ButtonState.DEFAULT
 
     def Update(self):
-        pass
+        if self.State() != ButtonState.DEFAULT and ((mouseLeftClick.released and self.triggeredOnRelease) or (mouseLeftClick.pressed and not self.triggeredOnRelease)):
+            self.Activate()
+    
+    def Activate(self):
+        print("Activate!")
     
     def Draw(self, location: int = 0):
-        state = self.State()
-        if state == ButtonState.DEFAULT:
-            self.texture = self.defaultTexture
-        elif state == ButtonState.HOVERED:
-            self.texture = self.hoveredTexture
-        else:
-            self.texture = self.heldTexture
+        match self.State():
+            case ButtonState.DEFAULT:
+                self.texture = self.defaultTexture
+            case ButtonState.HOVERED:
+                self.texture = self.hoveredTexture
+            case ButtonState.HELD:
+                self.texture = self.heldTexture
         Sprite.Draw(self, location)
 
 #endregion
@@ -170,9 +174,17 @@ deltaTime: float
 
 screenDim: glm.ivec2 = glm.ivec2(512, 480)
 
+WINDOW_NAME = "Awesome Jam! =]"
+
+V_SYNC = True
+DISPLAY_FPS = True
+
+framesThisSecond: int = 0
+
 rawCursorPos: glm.ivec2 = glm.ivec2(0)
 localCursorPos: glm.vec2 = glm.vec2(0)
 cursorPos: glm.vec2 = glm.vec2(0)
+gridCursorPos: glm.vec2 = glm.vec2(0)
 
 camPos: glm.vec2 = glm.vec2(0)
 camSpeed: float = 10.0
@@ -191,13 +203,16 @@ spriteShaderTextureUniform: moderngl.Uniform
 spriteShaderPosScaleUniform: moderngl.Uniform
 
 backgroundShader: moderngl.Program
-backgroundShaderCameraUniform: moderngl.Uniform
+backgroundShaderMinMaxUniform: moderngl.Uniform
 backgroundShaderFrequencyUniform: moderngl.Uniform
 backgroundShaderColorsUniform: moderngl.Uniform
 backgroundShaderTimeUniform: moderngl.Uniform
+backgroundShaderStippleUniform: moderngl.Uniform
+backgroundShaderStippleOffsetUniform: moderngl.Uniform # PPU stands for Pixels Per Unit
 
-backgroundFrequency: float = 0.05
-backgroundTimeFrequency: float = 0.003
+BACKGROUND_FREQUENCY: float = 0.05
+BACKGROUND_TIME_FREQUENCY: float = 0.003
+BACKGROUND_STIPPLE_DIST: float = 0.01
 
 toScreenShader: moderngl.Program
 toScreenTextureUniform: moderngl.Uniform
@@ -263,7 +278,8 @@ def OpenShader(vertLocation: str, fragLocation: str) -> moderngl.Program:
 def Start():
     global window, ctx, framebuffer, lastFrameTime
     global spriteShader, spriteShaderCameraUniform, spriteShaderTextureUniform, spriteShaderPosScaleUniform
-    global backgroundShader, backgroundShaderCameraUniform, backgroundShaderFrequencyUniform, backgroundShaderColorsUniform, backgroundShaderTimeUniform
+    global backgroundShader, backgroundShaderMinMaxUniform, backgroundShaderFrequencyUniform, backgroundShaderColorsUniform
+    global backgroundShaderTimeUniform, backgroundShaderStippleUniform, backgroundShaderStippleOffsetUniform
     global toScreenShader, toScreenTextureUniform, toScreenStretchUniform
     global quadMesh, spriteVAO, backgroundVAO, toScreenVAO, testTexture, testTexture2, testTexture3, testSprite, testButton
     # Initialize the library
@@ -274,7 +290,7 @@ def Start():
     glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
     glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
     # Create a windowed mode window and its OpenGL context
-    window = glfw.create_window(screenDim.x, screenDim.y, "Hello World", None, None)
+    window = glfw.create_window(screenDim.x, screenDim.y, WINDOW_NAME, None, None)
     if not window:
         glfw.terminate()
         return
@@ -294,10 +310,12 @@ def Start():
     spriteShaderPosScaleUniform = spriteShader["posScale"]
     
     backgroundShader = OpenShader("BackgroundShaderVert.glsl", "BackgroundShaderFrag.glsl")
-    backgroundShaderCameraUniform = backgroundShader["camera"]
+    backgroundShaderMinMaxUniform = backgroundShader["minMaxPos"]
     backgroundShaderFrequencyUniform = backgroundShader["frequency"]
     backgroundShaderColorsUniform = backgroundShader["colors"]
     backgroundShaderTimeUniform = backgroundShader["time"]
+    backgroundShaderStippleUniform = backgroundShader["stippleDist"]
+    backgroundShaderStippleOffsetUniform = backgroundShader["stippleOffset"]
 
     toScreenShader = OpenShader("ToScreenVert.glsl", "ToScreenFrag.glsl")
     toScreenTextureUniform = toScreenShader["tex"]
@@ -319,9 +337,20 @@ def Start():
 
 
 def Update():
-    global deltaTime, lastFrameTime, camPos, camMatrix, rawCursorPos, localCursorPos, cursorPos
+    global deltaTime, lastFrameTime, framesThisSecond, camPos, gridCamPos, camMatrix, rawCursorPos, localCursorPos, cursorPos
+    glfw.swap_interval(1 if V_SYNC else 0)
+    if DISPLAY_FPS:
+        framesThisSecond += 1
+        if int(glfw.get_time()) != int(lastFrameTime):
+            glfw.set_window_title(window, f"{WINDOW_NAME} FPS = {framesThisSecond}")
+            framesThisSecond = 0
+    else:
+        glfw.set_window_title(window, WINDOW_NAME)
+    
+
     deltaTime = glfw.get_time() - lastFrameTime
     lastFrameTime = glfw.get_time()
+
 
     framebuffer.use()
     framebuffer.clear(0.05, 0.1, 0.2)
@@ -348,18 +377,28 @@ def Update():
         camMovement.y += 1
     if camMovement != glm.vec2(0):
         camPos += deltaTime * camSpeed * glm.normalize(camMovement)
+    gridCamPos = ToGrid(camPos)
+
+
+    testButton.Update()
+
     
     camMatrix = glm.identity(glm.mat4)
     camMatrix *= glm.scale(glm.vec3(PIXELS_PER_UNIT * 2 / framebuffer.width, PIXELS_PER_UNIT * 2 / framebuffer.height, 1.0))
-    camMatrix *= glm.translate(glm.vec3(ToGrid(-camPos), 0))
+    camMatrix *= glm.translate(glm.vec3(-gridCamPos, 0))
     invCamMatrix = glm.inverse(camMatrix)
 
     cursorPos = glm.vec2(invCamMatrix * glm.vec4(localCursorPos, 0, 0)) + camPos
 
-    backgroundShaderCameraUniform.write(invCamMatrix)
-    backgroundShaderFrequencyUniform.write(glm.vec2(backgroundFrequency, backgroundTimeFrequency))
+    framebufferDim: glm.vec2 = glm.vec2(framebuffer.width, framebuffer.height)
+    minCamPos: glm.vec2 = gridCamPos - framebufferDim * 0.5 / PIXELS_PER_UNIT
+    maxCamPos: glm.vec2 = gridCamPos + framebufferDim * 0.5 / PIXELS_PER_UNIT
+    backgroundShaderMinMaxUniform.write(glm.vec4(minCamPos.x, minCamPos.y, maxCamPos.x, maxCamPos.y))
+    backgroundShaderFrequencyUniform.write(glm.vec2(BACKGROUND_FREQUENCY, BACKGROUND_TIME_FREQUENCY))
     backgroundShaderColorsUniform.write(b''.join([glm.vec4(0.18, 0.19, 0.52, 0.75), glm.vec4(0.16, 0.13, 0.45, 0.5), glm.vec4(0.13, 0.06, 0.34, 0.25)]))
     backgroundShaderTimeUniform.value = lastFrameTime
+    backgroundShaderStippleUniform.value = BACKGROUND_STIPPLE_DIST
+    backgroundShaderStippleOffsetUniform.value = int((gridCamPos.x + gridCamPos.y) * PIXELS_PER_UNIT) % 2
     backgroundVAO.render()
 
 

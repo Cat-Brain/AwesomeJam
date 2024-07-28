@@ -1,12 +1,12 @@
 #version 330 core
 in vec2 aPos, aUV;
-uniform mat4 camera;
 
-out vec2 pos, uv;
+uniform vec4 minMaxPos;
+
+out vec2 pos;
 
 void main()
 {
     gl_Position = vec4(aPos, .5, 1.0);
-    uv = aUV;
-    pos = vec2(camera * vec4(aPos, .5, 1.0));
+    pos = minMaxPos.xy * (1 - aUV) + minMaxPos.zw * aUV;
 }
