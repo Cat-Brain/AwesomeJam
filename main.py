@@ -83,14 +83,41 @@ class Mesh:
         self.ebo = ctx.buffer(self.indices.astype('u4').tobytes())
 
 
+class Shader:
+    program: moderngl.Program
+    vertPath: str
+    fragPath: str
+
+    def __init__(self, vertPath: str, fragPath: str):
+        self.vertPath = vertPath
+        self.fragPath = fragPath
+        shaders.append(self)
+
+    def Open(self):
+        file = open(SHADER_PATH + self.vertPath)
+        vertShader = file.read()
+        file.close()
+        file = open(SHADER_PATH + self.fragPath)
+        fragShader = file.read()
+        file.close()
+        self.program = ctx.program(vertShader, fragShader)
+
+
 class Texture:
+    path: str
     texture: moderngl.Texture
     sampler: moderngl.Sampler
 
-    def __init__(self, file: Image.Image):
+    def __init__(self, path: str):
+        self.path = path
+        textures.append(self)
+
+    def Open(self):
+        file = Image.open(SPRITE_PATH + self.path)
         self.texture = ctx.texture([file.width, file.height], 4, ImageOps.flip(file).tobytes())
         self.sampler = ctx.sampler(texture=self.texture)
         self.sampler.filter = (moderngl.NEAREST, moderngl.NEAREST)
+
 
     def Use(self, location=0):
         self.sampler.use(location)
@@ -190,19 +217,23 @@ camPos: glm.vec2 = glm.vec2(0)
 camSpeed: float = 10.0
 camMatrix: glm.mat4
 
-SHADER_PATH: str = "Resources/Shaders/"
+AUDIO_PATH: str = "Resources/Audio/"
 MESH_PATH: str = "Resources/Meshes/"
+SHADER_PATH: str = "Resources/Shaders/"
+SPRITE_PATH: str = "Resources/Sprites/"
 
-PIXELS_PER_UNIT: int = 8
+PIXELS_PER_UNIT: int = 16
 CAMERA_ZOOM: int = 10
 FRAMEBUFFER_HEIGHT: int = PIXELS_PER_UNIT * CAMERA_ZOOM * 2
 
-spriteShader: moderngl.Program
+shaders: list[Shader] = []
+
+spriteShader: Shader = Shader("SpriteShaderVert.glsl", "SpriteShaderFrag.glsl")
 spriteShaderCameraUniform: moderngl.Uniform
 spriteShaderTextureUniform: moderngl.Uniform
 spriteShaderPosScaleUniform: moderngl.Uniform
 
-backgroundShader: moderngl.Program
+backgroundShader: Shader = Shader("BackgroundShaderVert.glsl", "BackgroundShaderFrag.glsl")
 backgroundShaderMinMaxUniform: moderngl.Uniform
 backgroundShaderFrequencyUniform: moderngl.Uniform
 backgroundShaderColorsUniform: moderngl.Uniform
@@ -212,9 +243,9 @@ backgroundShaderStippleOffsetUniform: moderngl.Uniform # PPU stands for Pixels P
 
 BACKGROUND_FREQUENCY: float = 0.05
 BACKGROUND_TIME_FREQUENCY: float = 0.003
-BACKGROUND_STIPPLE_DIST: float = 0.01
+BACKGROUND_STIPPLE_DIST: float = 0.005
 
-toScreenShader: moderngl.Program
+toScreenShader: Shader = Shader("ToScreenVert.glsl", "ToScreenFrag.glsl")
 toScreenTextureUniform: moderngl.Uniform
 toScreenStretchUniform: moderngl.Uniform
 
@@ -223,9 +254,11 @@ spriteVAO: moderngl.VertexArray
 backgroundVAO: moderngl.VertexArray
 toScreenVAO: moderngl.VertexArray
 
-testTexture: Texture
-testTexture2: Texture
-testTexture3: Texture
+textures: list[Texture] = []
+
+testTexture: Texture = Texture("TestSprite.png")
+testTexture2: Texture = Texture("TestSprite2.png")
+testTexture3: Texture = Texture("TestSprite3.png")
 
 testSprite: Sprite
 testButton: Button
@@ -258,7 +291,7 @@ def GetFramebufferStretch():
 
 def FramebufferSizeCallback(window, width: int, height: int):
     global screenDim, framebuffer
-    screenDim = glm.vec2(width, height)
+    screenDim = glm.ivec2(width, height)
     ctx.viewport = (0, 0, width, height)
     framebuffer.release()
     framebuffer = ctx.framebuffer(ctx.texture(NearestFramebufferViewport(), 4))
@@ -304,40 +337,39 @@ def Start():
     FramebufferSizeCallback(window, screenDim[0], screenDim[1])
 
 
-    spriteShader = OpenShader("DefaultShaderVert.glsl", "DefaultShaderFrag.glsl")
-    spriteShaderCameraUniform = spriteShader["camera"]
-    spriteShaderTextureUniform = spriteShader["tex"]
-    spriteShaderPosScaleUniform = spriteShader["posScale"]
-    
-    backgroundShader = OpenShader("BackgroundShaderVert.glsl", "BackgroundShaderFrag.glsl")
-    backgroundShaderMinMaxUniform = backgroundShader["minMaxPos"]
-    backgroundShaderFrequencyUniform = backgroundShader["frequency"]
-    backgroundShaderColorsUniform = backgroundShader["colors"]
-    backgroundShaderTimeUniform = backgroundShader["time"]
-    backgroundShaderStippleUniform = backgroundShader["stippleDist"]
-    backgroundShaderStippleOffsetUniform = backgroundShader["stippleOffset"]
+    for shader in shaders:
+        shader.Open()
 
-    toScreenShader = OpenShader("ToScreenVert.glsl", "ToScreenFrag.glsl")
-    toScreenTextureUniform = toScreenShader["tex"]
-    toScreenStretchUniform = toScreenShader["stretch"]
+    spriteShaderCameraUniform = spriteShader.program["camera"]
+    spriteShaderTextureUniform = spriteShader.program["tex"]
+    spriteShaderPosScaleUniform = spriteShader.program["posScale"]
+    
+    backgroundShaderMinMaxUniform = backgroundShader.program["minMaxPos"]
+    backgroundShaderFrequencyUniform = backgroundShader.program["frequency"]
+    backgroundShaderColorsUniform = backgroundShader.program["colors"]
+    backgroundShaderTimeUniform = backgroundShader.program["time"]
+    backgroundShaderStippleUniform = backgroundShader.program["stippleDist"]
+    backgroundShaderStippleOffsetUniform = backgroundShader.program["stippleOffset"]
+
+    toScreenTextureUniform = toScreenShader.program["tex"]
+    toScreenStretchUniform = toScreenShader.program["stretch"]
 
     quadMesh = Mesh("Quad.txt")
-    spriteVAO = ctx.vertex_array(spriteShader, quadMesh.vbo, "aPos", "aUV", index_buffer=quadMesh.ebo)
-    backgroundVAO = ctx.vertex_array(backgroundShader, quadMesh.vbo, "aPos", "aUV", index_buffer=quadMesh.ebo)
-    toScreenVAO = ctx.vertex_array(toScreenShader, quadMesh.vbo, "aPos", "aUV", index_buffer=quadMesh.ebo)
+    spriteVAO = ctx.vertex_array(spriteShader.program, quadMesh.vbo, "aPos", "aUV", index_buffer=quadMesh.ebo)
+    backgroundVAO = ctx.vertex_array(backgroundShader.program, quadMesh.vbo, "aPos", "aUV", index_buffer=quadMesh.ebo)
+    toScreenVAO = ctx.vertex_array(toScreenShader.program, quadMesh.vbo, "aPos", "aUV", index_buffer=quadMesh.ebo)
 
     lastFrameTime = glfw.get_time()
     
-    testTexture = Texture(Image.open("Resources/Sprites/TestSprite.png"))
-    testTexture2 = Texture(Image.open("Resources/Sprites/TestSprite2.png"))
-    testTexture3 = Texture(Image.open("Resources/Sprites/TestSprite3.png"))
+    for texture in textures:
+        texture.Open()
 
     testSprite = Sprite(testTexture)
     testButton = Button(testTexture, testTexture2, testTexture3, glm.vec2(3, 0))
 
 
 def Update():
-    global deltaTime, lastFrameTime, framesThisSecond, camPos, gridCamPos, camMatrix, rawCursorPos, localCursorPos, cursorPos
+    global deltaTime, lastFrameTime, framesThisSecond, camPos, gridCamPos, camMatrix, rawCursorPos, localCursorPos, cursorPos, BACKGROUND_STIPPLE_DIST
     glfw.swap_interval(1 if V_SYNC else 0)
     if DISPLAY_FPS:
         framesThisSecond += 1
@@ -357,6 +389,7 @@ def Update():
 
     for key in keys:
         key.Update(window)
+
 
     tempCursorPos = glfw.get_cursor_pos(window)
     rawCursorPos = glm.ivec2(tempCursorPos[0], tempCursorPos[1])

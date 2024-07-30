@@ -121,8 +121,10 @@ void main()
 {
     float value = snoise(vec3(frequency.x * pos, frequency.y * time)) * 0.5 + 0.5;
     for (int i = 0; i < COLOR_COUNT; i++)
-        if ((int(floor(gl_FragCoord.x + gl_FragCoord.y)) + i) % 2 == stippleOffset && abs(value - colors[i].a) < stippleDist)
+        if (abs(value - colors[i].a) < stippleDist)
         {
+            if ((int(floor(gl_FragCoord.x + gl_FragCoord.y)) + i) % 2 == stippleOffset)
+                continue;
             f_color = colors[i].rgb;
             return;
         }
